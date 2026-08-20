@@ -1,67 +1,163 @@
+import os
+import streamlit as st
+from dotenv import load_dotenv
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_groq import ChatGroq
+from langgraph.prebuilt import create_react_agent
 
-import os  # For accessing system environment variables (like API keys)
-import warnings  # For managing and suppressing warning messages
-from langchain_core.messages import HumanMessage  # For representing messages sent by the user to the model
-from langchain_groq import ChatGroq  # For interacting with the Groq LLM API
-from langchain_core.tools import tool  # Decorator to define custom tools that the agent can use
-from langgraph.prebuilt import create_react_agent  # For creating a ReAct (Reasoning and Acting) agent with tools
-from dotenv import load_dotenv  # For loading environment variables from a .env file
-
-# Suppress deprecation warnings for a clean user interface
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", category=UserWarning)
-
+# Load environment variables from .env file
 load_dotenv()
-#load environment variables from .env file
 
+# ==========================================
+# 1. Tools Definition
+# ==========================================
 @tool
-def calculator(a: float, b:float) -> str:
-    """Useful for performing basic arithmeric calculations with numbers"""
-    print("Tool has been called.")
+def calculator(a: float, b: float) -> str:
+    """Useful for performing basic arithmetic calculations with numbers."""
     return f"The sum of {a} and {b} is {a + b}"
-#A simple calculator tool that takes two numbers as input and returns their sum. The @tool decorator indicates that this function can be used as a tool by the agent.
-    
+
 @tool
 def say_hello(name: str) -> str:
-    """Useful for greeting a user"""
-    print("Tool has been called.")
-    return f"Hello {name}, I hope you are well today"
-#A simple greeting tool that takes a name as input and returns a greeting message. The @tool decorator indicates that this function can be used as a tool by the agent.
+    """Useful for greeting a user politely."""
+    return f"Hello {name}, I hope you are having a wonderful day!"
 
+tools = [calculator, say_hello]
+
+# ==========================================
+# 2. Agent Initialization
+# ==========================================
+def get_agent(api_key: str, model_name: str = "qwen/qwen3.6-27b"):
+    """Creates a LangGraph ReAct agent powered by Groq free tier models."""
+    if not api_key:
+        raise ValueError("Groq API key is missing. Please provide a valid GROQ_API_KEY.")
+    
+    model = ChatGroq(
+        groq_api_key=api_key,
+        model=model_name,
+        temperature=0.2
+    )
+    return create_react_agent(model, tools)
+
+# ==========================================
+# 3. Simple Streamlit Application
+# ==========================================
 def main():
-    groq_key = os.getenv("GROQ_API_KEY")
-    model_name = os.getenv("GROQ_MODEL", "qwen/qwen3.6-27b")
-    
-    print(f"Initializing Groq model: {model_name}...")
-    if not groq_key:
-        print("Warning: GROQ_API_KEY is not set in environment.")
-        
-    model = ChatGroq(model=model_name, temperature=0.2)
+    st.set_page_config(
+        page_title="AI Chatbot",
+        page_icon="💬",
+        layout="centered"
+    )
 
-    tools = [calculator, say_hello]
-    agent_executor = create_react_agent(model, tools)
-    #Create an agent executor using the REACT framework, which allows the agent to use the defined tools (calculator and say_hello) to perform tasks based on user input.
-    
-    print("Welcome! I'm your PythonAIChatbot assistant. Type 'quit' to exit.")
-    print("You can ask me to perform calculations or chat with me.")
-    #Print a welcome message to the user, informing them about the capabilities of the assistant and how to exit the program.
-    
-    while True:#Start an infinite loop to continuously accept user input until the user decides to quit.
-        user_input = input("\nYou: ").strip()
-        # Prompt the user for input and remove any leading or trailing whitespace.
+    st.title("💬 Groq AI Assistant")
+    st.caption("A clean, simple ReAct Chatbot powered by Groq Free-Tier Models & LangGraph")
+
+    # Sidebar Controls
+    with st.sidebar:
+        st.header("⚙️ Settings")
         
-        if user_input == "quit":
-            break
-        # If the user types "quit", exit the loop and end the program.
-        print("\nAssistant: ", end="")
-        for chunk in agent_executor.stream(
-            {"messages": [HumanMessage(content=user_input)]}
-        ):#Stream the agent's response in real-time as it processes the user's input. The agent_executor.stream() method takes a dictionary with a "messages" key, which contains a list of messages (in this case, just one HumanMessage with the user's input).
-            if "agent" in chunk and "messages" in chunk["agent"]:
-                for message in chunk["agent"]["messages"]:
-                    print(message.content, end="")#If the chunk contains an "agent" key with "messages", iterate through those messages and print their content without adding a newline (end="") to create a streaming effect.
-        print()#Print a newline after the response is complete to separate it from the next user input.
-              
-# The main function initializes the chatbot, defines the tools it can use, and handles the interaction loop with the user. The agent can perform calculations and greet users based on their input, and it streams responses in real-time.       
+        # API Key Config (Securely Hidden)
+        env_key = os.getenv("GROQ_API_KEY", "")
+        custom_key = st.text_input(
+            "Groq API Key (Override)",
+            type="password",
+            placeholder="Enter custom key if needed...",
+            help="If GROQ_API_KEY is set in your .env file, it will be used automatically without revealing your key."
+        )
+        
+        groq_key = custom_key.strip() if custom_key.strip() else env_key
+        
+        if env_key and not custom_key.strip():
+            st.caption("🔒 API Key loaded securely from `.env`")
+        elif custom_key.strip():
+            st.caption("🟢 Custom API Key active")
+        else:
+            st.caption("🔴 API Key missing")
+        
+        # Groq Free Tier Models
+        model_name = st.selectbox(
+            "Free Tier Model",
+            options=[
+                "qwen/qwen3.6-27b",
+                "llama-3.3-70b-versatile",
+                "llama-3.1-8b-instant",
+                "gemma2-9b-it"
+            ],
+            index=0,
+            help="Selected free-tier Groq model for fast inference."
+        )
+
+        st.divider()
+        st.markdown("**Active Tools:**")
+        st.markdown("- 🧮 `calculator(a, b)`")
+        st.markdown("- 👋 `say_hello(name)`")
+        
+        st.divider()
+        if st.button("🗑️ Clear Conversation", use_container_width=True):
+            st.session_state.messages = []
+            st.rerun()
+
+    # Chat Session History Initialization
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # Display Conversation History
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Chat Input Box
+    user_input = st.chat_input("Ask a question or test tools (e.g., 'Add 35 and 92')...")
+
+    if user_input:
+        if not groq_key:
+            st.error("⚠️ Please enter your Groq API Key in the sidebar or `.env` file.")
+            st.stop()
+
+        # Render User Message
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        # Render Assistant Response Stream
+        with st.chat_message("assistant"):
+            response_placeholder = st.empty()
+            full_response = ""
+
+            # Prepare Message Payload
+            formatted_messages = [
+                SystemMessage(content="You are a helpful, accurate, and concise AI assistant.")
+            ]
+            for m in st.session_state.messages:
+                if m["role"] == "user":
+                    formatted_messages.append(HumanMessage(content=m["content"]))
+                elif m["role"] == "assistant":
+                    formatted_messages.append(AIMessage(content=m["content"]))
+
+            try:
+                agent = get_agent(api_key=groq_key, model_name=model_name)
+
+                with st.status("Processing...", expanded=False) as status:
+                    for chunk in agent.stream({"messages": formatted_messages}):
+                        # Check for Tool Invocation
+                        if "tools" in chunk and "messages" in chunk["tools"]:
+                            for tool_msg in chunk["tools"]["messages"]:
+                                st.write(f"🔧 **Tool (`{tool_msg.name}`):** {tool_msg.content}")
+                        
+                        # Stream Assistant Tokens
+                        if "agent" in chunk and "messages" in chunk["agent"]:
+                            for agent_msg in chunk["agent"]["messages"]:
+                                if agent_msg.content:
+                                    full_response += agent_msg.content
+                                    response_placeholder.markdown(full_response + "▌")
+
+                    status.update(label="Done", state="complete")
+
+                response_placeholder.markdown(full_response if full_response else "*(No response generated)*")
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+            except Exception as err:
+                st.error(f"❌ Error: {err}")
+
 if __name__ == "__main__":
     main()
